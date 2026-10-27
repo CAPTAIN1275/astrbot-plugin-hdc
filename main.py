@@ -389,8 +389,20 @@ class HdcPhone(Star):
             return self._deny()
         if not text.strip():
             return json.dumps({"ok": False, "reason": "输入内容为空"}, ensure_ascii=False)
+        # 鸿蒙的 uinput 只认 ASCII：中文会报 "The character of index 0 is invalid"，
+        # 而且没有可用的替代通道（输入法无法程序化驱动）。早点说清楚，
+        # 免得模型反复重试。
+        if not text.isascii():
+            return json.dumps(
+                {
+                    "ok": False,
+                    "reason": "这台设备只能输入英文和数字，中文输不进去（系统限制）。"
+                    "可以让主人手动打中文，或者用英文关键词搜索。",
+                },
+                ensure_ascii=False,
+            )
         try:
-            await self._arun("shell", "uitest", "uiInput", "inputText", text)
+            await self._arun("shell", "uinput", "-K", "-t", text)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "length": len(text)}, ensure_ascii=False)
