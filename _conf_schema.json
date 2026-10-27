@@ -27,6 +27,6 @@
     "description": "截图与布局文件的保存目录",
     "type": "string",
     "default": "",
-    "hint": "留空则用系统临时目录下的 astrbot-hdc-shots"
+    "hint": "留空则用插件数据目录 data/plugin_data/astrbot_plugin_hdc"
   }
 }

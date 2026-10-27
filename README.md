@@ -79,7 +79,10 @@ Button "设置"  x=1154 y=381
 | `target` | 设备地址，如 `192.168.1.5:39199`。留空则自动取第一台 |
 | `admin_ids` | 允许操控设备的 QQ 号。留空则用 AstrBot 全局管理员 |
 | `timeout` | 单次 hdc 命令超时秒数，默认 25 |
-| `screenshot_dir` | 截图保存目录。留空则用系统临时目录 |
+| `screenshot_dir` | 截图保存目录。留空则用 `data/plugin_data/astrbot_plugin_hdc` |
+
+留空时，截图（`shot-1..shot-20.jpeg`）和布局中转文件 `_layout.json` 都会落在
+插件自己的数据目录 `data/plugin_data/astrbot_plugin_hdc` 下，方便迁移和审计。
 
 ## 安全边界
 

@@ -6,7 +6,7 @@ desc: >-
   文本控件树（控件类型 + 文字 + 坐标），模型据此决定点击位置，纯文本模型也能用；
   遇到自绘界面（视频流、图片墙）时用 hdc_see 把画面交给视觉模型兜底。
   只允许配置里的管理员 QQ 触发，内置支付类应用黑名单与命令超时。
-version: 0.2.0
+version: 0.2.1
 author: CAPTAIN1275
 repo: https://github.com/CAPTAIN1275/astrbot-plugin-hdc
 astrbot_version: ">=4.17.0"

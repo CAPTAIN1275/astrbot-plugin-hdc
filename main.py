@@ -13,13 +13,13 @@
 - 每次工具调用都有超时，避免设备卡住时把对话拖死
 """
 
+import asyncio
 import base64
 import json
 import os
 import re
 import shutil
 import subprocess
-import tempfile
 import time
 
 from mcp.types import CallToolResult, ImageContent, TextContent
@@ -53,7 +53,14 @@ DEFAULT_HDC = _default_hdc()
 DEFAULT_TARGET = ""            # 留空 = 自动取 hdc list targets 的第一台
 DEFAULT_ADMIN_IDS = []         # 允许使用的 QQ 号；为空时只允许 AstrBot 管理员
 DEFAULT_TIMEOUT = 25
-DEFAULT_SHOT_DIR = os.path.join(tempfile.gettempdir(), "astrbot-hdc-shots")
+
+# 产物落到插件自己的数据目录，便于迁移与审计：
+#   data/plugins/astrbot_plugin_hdc -> data/plugin_data/astrbot_plugin_hdc
+# 这里只用 __file__ 推导，不依赖 AstrBot 的内部 API。
+_PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SHOT_DIR = os.path.normpath(
+    os.path.join(_PLUGIN_DIR, "..", "..", "plugin_data", os.path.basename(_PLUGIN_DIR))
+)
 
 # 这些应用（bundle 名包含关键字）不允许被启动。
 PAYMENT_BUNDLES = (
@@ -106,6 +113,14 @@ class HdcPhone(Star):
         if proc.returncode != 0:
             raise HdcError(f"hdc 退出码 {proc.returncode}: {err or out}")
         return out
+
+    async def _arun(self, *args: str, timeout: int | None = None) -> str:
+        """异步版 _run：把阻塞的 subprocess 丢到线程池，别卡住事件循环。
+
+        hdc 和设备之间走 USB / 无线调试（192.168.x.x:端口），本质是网络 I/O，
+        在事件循环里同步跑会卡死整个 AstrBot，最长可达 timeout 秒。
+        """
+        return await asyncio.to_thread(self._run, *args, timeout=timeout)
 
     def _resolve_target(self) -> str:
         if self.target:
@@ -184,7 +199,10 @@ class HdcPhone(Star):
             return path
 
     def _capture(self) -> str:
-        """截图 → 拉到电脑 → 缩放 → 放进滚动槽位，返回本地路径。"""
+        """截图 → 拉到电脑 → 缩放 → 放进滚动槽位，返回本地路径。
+
+        同步实现；只能在 _arun 所在的线程池里跑（async 处理器用 to_thread 调）。
+        """
         remote = "/data/local/tmp/astrbot_shot.jpeg"
         incoming = os.path.join(self.screenshot_dir, "_incoming.jpeg")
         self._run("shell", "snapshot_display", "-f", remote)
@@ -192,7 +210,11 @@ class HdcPhone(Star):
         return self._rotate_shot(self._downscale(incoming))
 
     def _layout(self) -> list[dict]:
-        """把当前界面读成 [{type, text, bounds, x, y}] 的扁平列表。"""
+        """把当前界面读成 [{type, text, bounds, x, y}] 的扁平列表。
+
+        同步实现，同样交给线程池执行。中转文件 _layout.json 是一次性产物，
+        和截图一起放在插件数据目录里。
+        """
         remote = "/data/local/tmp/astrbot_layout.json"
         self._run("shell", "uitest", "dumpLayout", "-p", remote)
         local = os.path.join(self.screenshot_dir, "_layout.json")
@@ -240,7 +262,7 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
         try:
-            items = self._layout()
+            items = await asyncio.to_thread(self._layout)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
 
@@ -279,7 +301,7 @@ class HdcPhone(Star):
                 isError=True,
             )
         try:
-            path = self._capture()
+            path = await asyncio.to_thread(self._capture)
         except HdcError as exc:
             return CallToolResult(
                 content=[
@@ -321,7 +343,7 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
         try:
-            self._run("shell", "uitest", "uiInput", "click", str(int(x)), str(int(y)))
+            await self._arun("shell", "uitest", "uiInput", "click", str(int(x)), str(int(y)))
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "tapped": [int(x), int(y)]}, ensure_ascii=False)
@@ -348,7 +370,7 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
         try:
-            self._run(
+            await self._arun(
                 "shell", "uitest", "uiInput", "swipe",
                 str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2)), str(int(speed)),
             )
@@ -368,7 +390,7 @@ class HdcPhone(Star):
         if not text.strip():
             return json.dumps({"ok": False, "reason": "输入内容为空"}, ensure_ascii=False)
         try:
-            self._run("shell", "uitest", "uiInput", "inputText", text)
+            await self._arun("shell", "uitest", "uiInput", "inputText", text)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "length": len(text)}, ensure_ascii=False)
@@ -429,14 +451,14 @@ class HdcPhone(Star):
                 {"ok": False, "reason": f"{bundle} 属于支付/银行类应用，插件拒绝启动"},
                 ensure_ascii=False,
             )
-        resolved = self._resolve_ability(bundle, ability)
+        resolved = await asyncio.to_thread(self._resolve_ability, bundle, ability)
         if not resolved:
             return json.dumps(
                 {"ok": False, "reason": f"查不到 {bundle} 的入口 ability"},
                 ensure_ascii=False,
             )
         try:
-            self._run("shell", "aa", "start", "-a", resolved, "-b", bundle)
+            await self._arun("shell", "aa", "start", "-a", resolved, "-b", bundle)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps(
@@ -453,7 +475,7 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
         try:
-            local = self._capture()
+            local = await asyncio.to_thread(self._capture)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "path": local}, ensure_ascii=False)
