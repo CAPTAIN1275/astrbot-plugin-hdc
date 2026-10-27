@@ -13,6 +13,7 @@
 - 每次工具调用都有超时，避免设备卡住时把对话拖死
 """
 
+import base64
 import json
 import os
 import re
@@ -20,6 +21,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+
+from mcp.types import CallToolResult, ImageContent, TextContent
 
 from astrbot.api import llm_tool, logger
 from astrbot.api.event import AstrMessageEvent
@@ -142,6 +145,52 @@ class HdcPhone(Star):
             ensure_ascii=False,
         )
 
+    # 截图滚动保留份数：文件按 shot-1..shot-N 轮转，空间恒定不增长。
+    RETAIN_SHOTS = 20
+    SHOT_WIDTH = 720
+
+    def _rotate_shot(self, path: str) -> str:
+        """把新截图放进 shot-1，旧图依次后移，最老的一张丢弃。"""
+        try:
+            for i in range(self.RETAIN_SHOTS - 1, 0, -1):
+                src = os.path.join(self.screenshot_dir, f"shot-{i}.jpeg")
+                if os.path.exists(src):
+                    os.replace(src, os.path.join(self.screenshot_dir, f"shot-{i + 1}.jpeg"))
+            os.replace(path, os.path.join(self.screenshot_dir, "shot-1.jpeg"))
+        except OSError as exc:
+            logger.warning(f"[hdc] 轮转截图失败: {exc}")
+        return os.path.join(self.screenshot_dir, "shot-1.jpeg")
+
+    def _downscale(self, path: str) -> str:
+        """缩到 SHOT_WIDTH 宽。图小一大半，界面文字仍然清晰。"""
+        try:
+            from PIL import Image
+        except ImportError:
+            return path
+        try:
+            with Image.open(path) as img:
+                if img.width <= self.SHOT_WIDTH:
+                    return path
+                ratio = self.SHOT_WIDTH / img.width
+                resized = img.resize(
+                    (self.SHOT_WIDTH, max(1, int(img.height * ratio))),
+                    Image.LANCZOS,
+                )
+                out = path.replace("_incoming", "_scaled")
+                resized.convert("RGB").save(out, "JPEG", quality=80)
+            return out
+        except Exception as exc:
+            logger.warning(f"[hdc] 缩放截图失败，改用原图: {exc}")
+            return path
+
+    def _capture(self) -> str:
+        """截图 → 拉到电脑 → 缩放 → 放进滚动槽位，返回本地路径。"""
+        remote = "/data/local/tmp/astrbot_shot.jpeg"
+        incoming = os.path.join(self.screenshot_dir, "_incoming.jpeg")
+        self._run("shell", "snapshot_display", "-f", remote)
+        self._run("file", "recv", remote, incoming)
+        return self._rotate_shot(self._downscale(incoming))
+
     def _layout(self) -> list[dict]:
         """把当前界面读成 [{type, text, bounds, x, y}] 的扁平列表。"""
         remote = "/data/local/tmp/astrbot_layout.json"
@@ -198,10 +247,62 @@ class HdcPhone(Star):
         if keyword:
             items = [i for i in items if keyword in i["text"]]
         total = len(items)
-        items = items[:80]
-        return json.dumps(
-            {"ok": True, "count": total, "shown": len(items), "nodes": items},
-            ensure_ascii=False,
+        payload = {"ok": True, "count": total, "shown": min(total, 80), "nodes": items[:80]}
+        # 节点太少通常意味着这是自绘界面（视频流、游戏、图片墙），文本树读不出
+        # 内容。这时候要让模型知道该换视觉兜底，而不是对着空列表瞎猜。
+        if total < 5:
+            payload["hint"] = (
+                "当前界面几乎没有可读文字，可能是自绘界面。"
+                "需要理解画面内容时改用 hdc_see 看画面。"
+            )
+        return json.dumps(payload, ensure_ascii=False)
+
+    @llm_tool(name="hdc_see")
+    async def hdc_see_tool(
+        self,
+        event: AstrMessageEvent,
+        question: str = "",
+    ) -> CallToolResult:
+        """截图并把画面直接交给模型看（视觉兜底）。
+
+        什么时候用：hdc_ui_dump 返回的节点很少，或者界面是自绘的（视频流、
+        游戏、图片墙），文本控件树读不出内容时，才用它看画面。
+
+        注意：图片比读控件树贵得多（多消耗上千 token），能读文本就不要用它。
+
+        Args:
+            question(string): 你想从画面里确认什么，例如「这个视频在讲什么」。
+        """
+        if not self._allowed(event):
+            return CallToolResult(
+                content=[TextContent(type="text", text=self._deny())],
+                isError=True,
+            )
+        try:
+            path = self._capture()
+        except HdcError as exc:
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False),
+                    )
+                ],
+                isError=True,
+            )
+
+        with open(path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+
+        note = question.strip() or "这是手机当前画面。"
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"{note}（截图已附在下一条消息里，按画面回答，别猜。）",
+                ),
+                ImageContent(type="image", data=b64, mimeType="image/jpeg"),
+            ]
         )
 
     @llm_tool(name="hdc_tap")
@@ -344,18 +445,15 @@ class HdcPhone(Star):
 
     @llm_tool(name="hdc_screenshot")
     async def hdc_screenshot_tool(self, event: AstrMessageEvent) -> str:
-        """把手机当前画面截图保存到电脑上（只给人看，模型看不到图片）。
+        """把手机当前画面截图保存下来（给人看或稍后用 send_message_to_user 发出去）。
 
-        适合在完成一串操作后留证据，或者让人确认结果。
+        截图固定保留最近 20 张（shot-1 最新），磁盘占用恒定，不会越存越多。
+        想让模型自己看懂画面，用 hdc_see 而不是这个。
         """
         if not self._allowed(event):
             return self._deny()
-        remote = "/data/local/tmp/astrbot_shot.jpeg"
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        local = os.path.join(self.screenshot_dir, f"shot-{stamp}.jpeg")
         try:
-            self._run("shell", "snapshot_display", "-f", remote)
-            self._run("file", "recv", remote, local)
+            local = self._capture()
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "path": local}, ensure_ascii=False)
