@@ -1,0 +1,11 @@
+name: astrbot_plugin_hdc
+display_name: 鸿蒙设备控制
+short_desc: 通过 hdc 操控 HarmonyOS 设备（读控件树 / 点击 / 滑动 / 输入 / 启动应用）
+desc: >-
+  让 AI 通过 hdc 操作一台 HarmonyOS 设备。不依赖截图识别，而是用 uitest dumpLayout
+  把当前界面读成文本控件树（控件类型 + 文字 + 坐标），模型据此决定点击位置，
+  因此纯文本模型也能操作手机。只允许配置里的管理员 QQ 触发；
+  内置支付类应用黑名单与命令超时。
+version: 0.1.0
+author: CAPTAIN1275
+repo: https://github.com/CAPTAIN1275/astrbot-plugin-hdc

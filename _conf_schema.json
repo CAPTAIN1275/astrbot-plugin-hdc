@@ -1,0 +1,32 @@
+{
+  "hdc_path": {
+    "description": "hdc 可执行文件路径",
+    "type": "string",
+    "default": "",
+    "hint": "留空则自动查找：先看 PATH，再看 DevEco Studio 的常见安装位置"
+  },
+  "target": {
+    "description": "设备地址",
+    "type": "string",
+    "default": "",
+    "hint": "形如 192.168.1.5:39199。留空则自动取 hdc list targets 的第一台"
+  },
+  "admin_ids": {
+    "description": "允许操控设备的 QQ 号",
+    "type": "list",
+    "default": [],
+    "hint": "只填你自己的 QQ 号，例如 [\"123456789\"]。留空则使用 AstrBot 全局管理员列表"
+  },
+  "timeout": {
+    "description": "单次 hdc 命令超时（秒）",
+    "type": "int",
+    "default": 25,
+    "hint": "设备卡住时不会把对话拖死"
+  },
+  "screenshot_dir": {
+    "description": "截图与布局文件的保存目录",
+    "type": "string",
+    "default": "",
+    "hint": "留空则用系统临时目录下的 astrbot-hdc-shots"
+  }
+}
