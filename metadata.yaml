@@ -9,3 +9,11 @@ desc: >-
 version: 0.1.0
 author: CAPTAIN1275
 repo: https://github.com/CAPTAIN1275/astrbot-plugin-hdc
+astrbot_version: ">=4.17.0"
+social_link: https://github.com/CAPTAIN1275
+tags:
+  - harmonyos
+  - hdc
+  - 鸿蒙
+  - 手机控制
+  - 自动化
