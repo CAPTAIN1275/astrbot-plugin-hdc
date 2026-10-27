@@ -378,26 +378,65 @@ class HdcPhone(Star):
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True}, ensure_ascii=False)
 
+    # 输入法候选栏的坐标（1320 宽的屏，键盘弹出时）。
+    # 候选栏是输入法自己的窗口，dumpLayout 读不到，只能按坐标点。
+    CANDIDATE_X0 = 96
+    CANDIDATE_STEP = 130
+    CANDIDATE_Y = 1832
+
     @llm_tool(name="hdc_input_text")
-    async def hdc_input_text_tool(self, event: AstrMessageEvent, text: str) -> str:
-        """往当前获得焦点的输入框里输入文字（需要先点击输入框让它获得焦点）。
+    async def hdc_input_text_tool(
+        self,
+        event: AstrMessageEvent,
+        text: str = "",
+        pinyin: str = "",
+        candidate: int = 0,
+    ) -> str:
+        """往当前获得焦点的输入框里输入文字。
+
+        英文和数字直接写入。中文要先转成拼音（你自己会转），走输入法：
+        插件逐字母敲拼音，再点候选栏里的第 candidate 个候选词。
+
+        例子：想输入「测试」-> pinyin="ceshi"，candidate=0（第一个候选）。
 
         Args:
-            text(string): 要输入的文字。
+            text(string): 英文/数字内容。要输入中文时留空。
+            pinyin(string): 中文对应的拼音字母，只含 a-z，不带声调。
+            candidate(number): 取第几个候选词，从 0 开始。默认第一个。
         """
         if not self._allowed(event):
             return self._deny()
+
+        if pinyin.strip():
+            letters = re.sub(r"[^a-z]", "", pinyin.lower())
+            if not letters:
+                return json.dumps(
+                    {"ok": False, "reason": "拼音里没有有效字母"}, ensure_ascii=False
+                )
+            try:
+                for ch in letters:
+                    keycode = 2017 + (ord(ch) - ord("a"))
+                    await self._arun("shell", "uitest", "uiInput", "keyEvent", str(keycode))
+                # 等输入法出候选，再点第 candidate 个
+                await asyncio.sleep(0.6)
+                x = self.CANDIDATE_X0 + max(0, int(candidate)) * self.CANDIDATE_STEP
+                await self._arun("shell", "uitest", "uiInput", "click", str(x), str(self.CANDIDATE_Y))
+            except HdcError as exc:
+                return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+            return json.dumps(
+                {"ok": True, "pinyin": letters, "candidate": int(candidate)},
+                ensure_ascii=False,
+            )
+
         if not text.strip():
-            return json.dumps({"ok": False, "reason": "输入内容为空"}, ensure_ascii=False)
-        # 鸿蒙的 uinput 只认 ASCII：中文会报 "The character of index 0 is invalid"，
-        # 而且没有可用的替代通道（输入法无法程序化驱动）。早点说清楚，
-        # 免得模型反复重试。
+            return json.dumps(
+                {"ok": False, "reason": "给 text（英文）或 pinyin（中文转拼音）"}, ensure_ascii=False
+            )
         if not text.isascii():
             return json.dumps(
                 {
                     "ok": False,
-                    "reason": "这台设备只能输入英文和数字，中文输不进去（系统限制）。"
-                    "可以让主人手动打中文，或者用英文关键词搜索。",
+                    "reason": "中文请用 pinyin 参数走输入法：例如输入「测试」传 pinyin=\"ceshi\"。",
                 },
                 ensure_ascii=False,
             )
