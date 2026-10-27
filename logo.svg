@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="astrbot-plugin-hdc icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b5bd7"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- phone body -->
+  <rect x="150" y="84" width="212" height="344" rx="34" fill="url(#screen)"
+        stroke="#ffffff" stroke-opacity="0.92" stroke-width="10"/>
+  <!-- speaker slot -->
+  <rect x="228" y="110" width="56" height="9" rx="4.5" fill="#ffffff" fill-opacity="0.55"/>
+
+  <!-- ui tree rows inside the screen -->
+  <rect x="180" y="152" width="152" height="18" rx="9" fill="#60a5fa" fill-opacity="0.85"/>
+  <rect x="180" y="188" width="104" height="18" rx="9" fill="#ffffff" fill-opacity="0.35"/>
+  <rect x="180" y="224" width="130" height="18" rx="9" fill="#ffffff" fill-opacity="0.22"/>
+
+  <!-- tap target + ripple -->
+  <circle cx="300" cy="316" r="34" fill="#60a5fa" fill-opacity="0.22"/>
+  <circle cx="300" cy="316" r="20" fill="#e0efff"/>
+  <circle cx="300" cy="316" r="9" fill="#2b5bd7"/>
+</svg>
