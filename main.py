@@ -407,44 +407,28 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
 
-        if pinyin.strip():
-            letters = re.sub(r"[^a-z]", "", pinyin.lower())
-            if not letters:
-                return json.dumps(
-                    {"ok": False, "reason": "拼音里没有有效字母"}, ensure_ascii=False
-                )
-            try:
-                for ch in letters:
-                    keycode = 2017 + (ord(ch) - ord("a"))
-                    await self._arun("shell", "uitest", "uiInput", "keyEvent", str(keycode))
-                # 等输入法出候选，再点第 candidate 个
-                await asyncio.sleep(0.6)
-                x = self.CANDIDATE_X0 + max(0, int(candidate)) * self.CANDIDATE_STEP
-                await self._arun("shell", "uitest", "uiInput", "click", str(x), str(self.CANDIDATE_Y))
-            except HdcError as exc:
-                return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        # 鸿蒙的 hdc 打不了中文：uinput 只认 ASCII，uitest 没有 inputText，
+        # 而输入法候选栏是独立窗口，dumpLayout 读不到它的位置，只能盲点——
+        # 盲点会点到别的东西（实测点开过相机）。所以这里只打英文和拼音字母，
+        # 中文交给输入法由用户手动选词，或者直接用拼音搜。
+        raw = pinyin.strip() or text.strip()
+        if not raw:
             return json.dumps(
-                {"ok": True, "pinyin": letters, "candidate": int(candidate)},
-                ensure_ascii=False,
+                {"ok": False, "reason": "给 text（英文或拼音字母）"}, ensure_ascii=False
             )
-
-        if not text.strip():
-            return json.dumps(
-                {"ok": False, "reason": "给 text（英文）或 pinyin（中文转拼音）"}, ensure_ascii=False
-            )
-        if not text.isascii():
+        if not raw.isascii():
             return json.dumps(
                 {
                     "ok": False,
-                    "reason": "中文请用 pinyin 参数走输入法：例如输入「测试」传 pinyin=\"ceshi\"。",
+                    "reason": "只能输入英文或拼音字母。中文请在手机上手动输入。",
                 },
                 ensure_ascii=False,
             )
         try:
-            await self._arun("shell", "uinput", "-K", "-t", text)
+            await self._arun("shell", "uinput", "-K", "-t", raw)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
-        return json.dumps({"ok": True, "length": len(text)}, ensure_ascii=False)
+        return json.dumps({"ok": True, "typed": raw[:40]}, ensure_ascii=False)
 
     def _resolve_ability(self, bundle: str, preferred: str = "") -> str:
         """查这个 bundle 的真正入口 ability。
