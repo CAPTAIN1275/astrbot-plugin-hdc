@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="480" viewBox="0 0 920 480" role="img" aria-label="astrbot-plugin-hdc 工作流程">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#131c30"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b8def"/>
+    </marker>
+    <style>
+      .box { fill: #17233c; stroke: #2c3f63; stroke-width: 1.5; rx: 12; }
+      .accent { fill: #1b2b4a; stroke: #5b8def; stroke-width: 1.5; rx: 12; }
+      .t { fill: #e6edf7; font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif; font-size: 15px; }
+      .s { fill: #8fa4c4; font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif; font-size: 12.5px; }
+      .m { fill: #9db4d8; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12px; }
+      .h { fill: #ffffff; font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif; font-size: 19px; font-weight: 600; }
+      .arrow { stroke: #5b8def; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="920" height="480" fill="url(#bg)"/>
+
+  <text class="h" x="40" y="52">astrbot-plugin-hdc</text>
+  <text class="s" x="40" y="76">在 QQ 里说一句话，模型自己读鸿蒙界面、点按钮、滑动、输入</text>
+
+  <!-- 1. chat -->
+  <rect class="box" x="40" y="104" width="196" height="86"/>
+  <text class="t" x="60" y="134">QQ / 群聊</text>
+  <text class="m" x="60" y="158">"打开设置"</text>
+  <text class="s" x="60" y="178">用户只发一句话</text>
+
+  <!-- 2. astrbot -->
+  <rect class="accent" x="276" y="104" width="224" height="86"/>
+  <text class="t" x="296" y="134">AstrBot</text>
+  <text class="s" x="296" y="156">人格 · 上下文 · 工具循环</text>
+  <text class="s" x="296" y="176">按 admin_ids 校验身份</text>
+
+  <!-- 3. tools -->
+  <rect class="box" x="540" y="104" width="340" height="86"/>
+  <text class="t" x="560" y="130">本插件的 6 个 LLM 工具</text>
+  <text class="m" x="560" y="152">hdc_ui_dump / hdc_tap / hdc_swipe</text>
+  <text class="m" x="560" y="172">hdc_input_text / app_start / screenshot</text>
+
+  <!-- arrows top row -->
+  <path class="arrow" d="M 236 147 L 274 147"/>
+  <path class="arrow" d="M 500 147 L 538 147"/>
+
+  <!-- 4. hdc -->
+  <rect class="box" x="540" y="230" width="340" height="70"/>
+  <text class="t" x="560" y="258">hdc（HarmonyOS Device Connector）</text>
+  <text class="m" x="560" y="280">uitest dumpLayout · uiInput · aa start</text>
+
+  <path class="arrow" d="M 710 192 L 710 228"/>
+
+  <!-- 5. device -->
+  <rect class="accent" x="540" y="340" width="340" height="96"/>
+  <text class="t" x="560" y="370">HarmonyOS 手机 / 平板</text>
+  <text class="s" x="560" y="393">模型读到的是文本控件树，不是截图</text>
+  <text class="m" x="560" y="415">Button "设置"  x=1154 y=381</text>
+
+  <path class="arrow" d="M 710 302 L 710 338"/>
+
+  <!-- example panel -->
+  <rect class="box" x="40" y="230" width="460" height="206"/>
+  <text class="t" x="62" y="260">模型看到的东西（hdc_ui_dump 返回）</text>
+  <text class="m" x="62" y="288">{ "ok": true, "count": 14,</text>
+  <text class="m" x="62" y="308">  "nodes": [</text>
+  <text class="m" x="62" y="328">    {"type": "Text", "text": "设置",</text>
+  <text class="m" x="62" y="348">     "x": 1154, "y": 381},</text>
+  <text class="m" x="62" y="368">    {"type": "Text", "text": "微信",</text>
+  <text class="m" x="62" y="388">     "x": 166, "y": 381}</text>
+  <text class="m" x="62" y="408">  ] }</text>
+  <text class="s" x="62" y="428">文本模型也能读，所以不需要视觉能力</text>
+
+  <path class="arrow" d="M 500 262 L 538 262" stroke-dasharray="4 4"/>
+  <text class="s" x="352" y="222">调用</text>
+</svg>
