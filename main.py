@@ -407,25 +407,21 @@ class HdcPhone(Star):
         if not self._allowed(event):
             return self._deny()
 
-        # 鸿蒙的 hdc 打不了中文：uinput 只认 ASCII，uitest 没有 inputText，
-        # 而输入法候选栏是独立窗口，dumpLayout 读不到它的位置，只能盲点——
-        # 盲点会点到别的东西（实测点开过相机）。所以这里只打英文和拼音字母，
-        # 中文交给输入法由用户手动选词，或者直接用拼音搜。
+        # 鸿蒙的 uitest 提供两个输入命令：
+        #   uiInput text <text>      在已聚焦的位置输入，支持中文
+        #   uinput -K -t <text>      只支持 ASCII
+        # 之前误判成「打不了中文」，是因为只看了 uitest 帮助的前半段，
+        # 没翻到 text 那两行。
         raw = pinyin.strip() or text.strip()
-        if not raw:
+        if not raw.strip():
             return json.dumps(
-                {"ok": False, "reason": "给 text（英文或拼音字母）"}, ensure_ascii=False
-            )
-        if not raw.isascii():
-            return json.dumps(
-                {
-                    "ok": False,
-                    "reason": "只能输入英文或拼音字母。中文请在手机上手动输入。",
-                },
-                ensure_ascii=False,
+                {"ok": False, "reason": "给 text（要输入的内容）"}, ensure_ascii=False
             )
         try:
-            await self._arun("shell", "uinput", "-K", "-t", raw)
+            if raw.isascii():
+                await self._arun("shell", "uinput", "-K", "-t", raw)
+            else:
+                await self._arun("shell", "uitest", "uiInput", "text", raw)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "typed": raw[:40]}, ensure_ascii=False)
