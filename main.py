@@ -542,19 +542,38 @@ class HdcPhone(Star):
         self,
         event: AstrMessageEvent,
         count: int = 1,
-        album_dir: str = "/storage/Media/DCIM/Camera",
+        album_dir: str = "",
     ) -> str:
-        """把手机相册里最新的照片拉回电脑（按修改时间倒序）。
+        """从手机某个目录取最新文件（需要 shell 用户有读权限）。
+
+        注意：**相册目录在 HarmonyOS 上是读不到的**（/storage/media 与 /mnt/hmdfs
+        都是 Permission denied），所以这个工具拿不到相册原图。要看相册内容，请走
+        hdc_app_start(com.huawei.hmos.photos) 打开图库，再 hdc_screenshot + hdc_see。
+        这个工具适合 /data/local/tmp 或应用自己导出的目录。
 
         Args:
-            count(number): 拉几张，默认 1，最多 5。
-            album_dir(string): 相册目录，默认 /storage/Media/DCIM/Camera。
+            count(number): 取几个，默认 1，最多 5。
+            album_dir(string): 目标目录，例如 /data/local/tmp。
         """
         if not self._allowed(event):
             return self._deny()
+        target = str(album_dir or "").strip()
+        if not target:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "reason": (
+                        "相册（/storage/media、/mnt/hmdfs）在 HarmonyOS 上对 shell 用户"
+                        "是禁止访问的，取不到原图。要看相册请改用："
+                        "hdc_app_start 打开 com.huawei.hmos.photos → hdc_screenshot → hdc_see。"
+                        "如果要取的是 /data/local/tmp 之类的文件，请显式传 album_dir。"
+                    ),
+                },
+                ensure_ascii=False,
+            )
         take = max(1, min(5, int(count or 1)))
         try:
-            listing = await self._arun("shell", "ls", "-t", album_dir)
+            listing = await self._arun("shell", "ls", "-t", target)
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         names = [
@@ -563,11 +582,11 @@ class HdcPhone(Star):
             if line.strip() and not line.strip().endswith("/")
         ][:take]
         if not names:
-            return json.dumps({"ok": False, "reason": f"{album_dir} 里没有文件"}, ensure_ascii=False)
+            return json.dumps({"ok": False, "reason": f"{target} 里没有文件"}, ensure_ascii=False)
 
         saved = []
         for name in names:
-            remote = f"{album_dir.rstrip('/')}/{name}"
+            remote = f"{target.rstrip('/')}/{name}"
             local = os.path.join(self._pull_dir(), name)
             try:
                 await self._arun("file", "recv", remote, local, timeout=120)
