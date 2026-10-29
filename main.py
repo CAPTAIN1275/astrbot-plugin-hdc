@@ -436,8 +436,10 @@ class HdcPhone(Star):
             return self._deny()
         count = max(1, min(50, int(times or 10)))
         gap = max(300, min(5000, int(delay_ms or 1500))) / 1000.0
-        # dircFling 的方向码：0 左 1 右 2 上 3 下
-        code = 2 if str(direction).lower() == "up" else 3
+        # dircFling 的方向码：0 左 1 右 2 下 3 上（按手指滑动方向）。
+        # uitest help 里把 2 写成 "up"、3 写成 "down"，实测是反的：2 会触发
+        # 抖音的下拉刷新，3 才翻到下一条。以实测为准。
+        code = 3 if str(direction).lower() == "up" else 2
         try:
             for index in range(count):
                 await self._arun("shell", "uitest", "uiInput", "dircFling", str(code))
@@ -471,8 +473,9 @@ class HdcPhone(Star):
         """
         if not self._allowed(event):
             return self._deny()
-        # 0 左 1 右 2 上 3 下
-        mapping = {"left": 0, "right": 1, "up": 2, "down": 3}
+        # 实测：2 是手指下滑（下拉刷新），3 是手指上滑（翻到下一条）。
+        # uitest help 的 up/down 标注与实际相反，按实测走。
+        mapping = {"left": 0, "right": 1, "up": 3, "down": 2}
         code = mapping.get(str(direction).lower())
         if code is None:
             return json.dumps(
