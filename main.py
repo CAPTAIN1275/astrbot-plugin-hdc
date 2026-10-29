@@ -412,6 +412,48 @@ class HdcPhone(Star):
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True, "double_tapped": [int(x), int(y)]}, ensure_ascii=False)
 
+    @llm_tool(name="hdc_swipe_loop")
+    async def hdc_swipe_loop_tool(
+        self,
+        event: AstrMessageEvent,
+        times: int = 10,
+        direction: str = "up",
+        delay_ms: int = 1500,
+        screenshot_at_end: bool = True,
+    ) -> str:
+        """连续刷屏（刷短视频、翻长列表）——一次调用刷很多下，不用每屏都推理。
+
+        刷抖音这类要「一直刷」的场景：连续调它几次，每次刷一批，
+        中间用 hdc_see 看一眼画面，再决定要不要继续。
+
+        Args:
+            times(number): 刷几下，默认 10，最多 50。
+            direction(string): up（看下一个）/ down（回上一个），默认 up。
+            delay_ms(number): 每下之间间隔毫秒，默认 1500，最多 5000。
+            screenshot_at_end(boolean): 刷完是否截一张图返回，默认 true。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        count = max(1, min(50, int(times or 10)))
+        gap = max(300, min(5000, int(delay_ms or 1500))) / 1000.0
+        # dircFling 的方向码：0 左 1 右 2 上 3 下
+        code = 2 if str(direction).lower() == "up" else 3
+        try:
+            for index in range(count):
+                await self._arun("shell", "uitest", "uiInput", "dircFling", str(code))
+                if index < count - 1:
+                    await asyncio.sleep(gap)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+
+        payload: dict = {"ok": True, "swiped": count, "direction": direction}
+        if screenshot_at_end:
+            try:
+                payload["screenshot"] = await asyncio.to_thread(self._capture)
+            except HdcError as exc:
+                payload["screenshot_error"] = str(exc)
+        return json.dumps(payload, ensure_ascii=False)
+
     @llm_tool(name="hdc_scroll")
     async def hdc_scroll_tool(
         self,
