@@ -86,6 +86,10 @@ class HdcPhone(Star):
         self.admin_ids = [str(x).strip() for x in (cfg.get("admin_ids") or DEFAULT_ADMIN_IDS)]
         self.timeout = int(cfg.get("timeout") or DEFAULT_TIMEOUT)
         self.screenshot_dir = str(cfg.get("screenshot_dir") or DEFAULT_SHOT_DIR)
+        # 这些应用在前台时禁止点按，防止刷内容时手滑点赞/关注。
+        self.tap_guard_bundles = [
+            str(x).strip() for x in (cfg.get("tap_guard_bundles") or []) if str(x).strip()
+        ]
         os.makedirs(self.screenshot_dir, exist_ok=True)
 
     # ---------------- 基础设施 ----------------
@@ -234,7 +238,7 @@ class HdcPhone(Star):
         刷短视频最怕的不是滑动，而是手滑点到点赞/关注，把主人的推荐和关注列表
         搅乱。这些应用里只允许滑动和截图，点按一律先拦下来。
         """
-        bundles = getattr(self.cfg, "tap_guard_bundles", None)
+        bundles = getattr(self, "tap_guard_bundles", None)
         if not bundles:
             return ""
         current = self._foreground_bundle()
