@@ -1,12 +1,14 @@
 name: astrbot_plugin_hdc
 display_name: 鸿蒙设备控制
-short_desc: 通过 hdc 操控 HarmonyOS 设备（读控件树 / 点击 / 滑动 / 输入 / 启动应用）
+short_desc: 通过 hdc 操控 HarmonyOS 设备（读控件树 / 点击 / 长按 / 甩动 / 拖拽 / 输入 / 启停应用 / 传文件 / 读状态）
 desc: >-
   让 AI 通过 hdc 操作一台 HarmonyOS 设备。默认用 uitest dumpLayout 把当前界面读成
   文本控件树（控件类型 + 文字 + 坐标），模型据此决定点击位置，纯文本模型也能用；
   遇到自绘界面（视频流、图片墙）时用 hdc_see 把画面交给视觉模型兜底。
-  只允许配置里的管理员 QQ 触发，内置支付类应用黑名单与命令超时。
-version: 1.0.0
+  手势覆盖点击、长按、双击、滑动、拖拽和按方向甩动；另有文件双向传输、
+  相册取图、应用列表、电量与存储状态。只允许配置里的管理员 QQ 触发，
+  内置支付类应用黑名单与命令超时。
+version: 1.1.0
 author: CAPTAIN1275
 repo: https://github.com/CAPTAIN1275/astrbot-plugin-hdc
 astrbot_version: ">=4.17.0"

@@ -378,6 +378,268 @@ class HdcPhone(Star):
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
         return json.dumps({"ok": True}, ensure_ascii=False)
 
+    @llm_tool(name="hdc_long_click")
+    async def hdc_long_click_tool(self, event: AstrMessageEvent, x: int, y: int) -> str:
+        """长按屏幕坐标（删除、多选、呼出菜单常用）。
+
+        用 hdc_tap 点不开的东西，多半是要长按。
+
+        Args:
+            x(number): 横坐标，来自 hdc_ui_dump。
+            y(number): 纵坐标。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        try:
+            await self._arun("shell", "uitest", "uiInput", "longClick", str(int(x)), str(int(y)))
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        return json.dumps({"ok": True, "long_clicked": [int(x), int(y)]}, ensure_ascii=False)
+
+    @llm_tool(name="hdc_double_tap")
+    async def hdc_double_tap_tool(self, event: AstrMessageEvent, x: int, y: int) -> str:
+        """双击屏幕坐标（放大图片、点赞、双击唤醒）。
+
+        Args:
+            x(number): 横坐标。
+            y(number): 纵坐标。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        try:
+            await self._arun("shell", "uitest", "uiInput", "doubleClick", str(int(x)), str(int(y)))
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        return json.dumps({"ok": True, "double_tapped": [int(x), int(y)]}, ensure_ascii=False)
+
+    @llm_tool(name="hdc_scroll")
+    async def hdc_scroll_tool(
+        self,
+        event: AstrMessageEvent,
+        direction: str = "down",
+        times: int = 1,
+    ) -> str:
+        """按方向滚动屏幕（比手搓 swipe 坐标稳，适合刷列表）。
+
+        direction 含义是「内容往哪边走」：down = 看下面的内容（列表上滑）。
+
+        Args:
+            direction(string): up / down / left / right，默认 down。
+            times(number): 连滚几次，默认 1，最多 10。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        # 0 左 1 右 2 上 3 下
+        mapping = {"left": 0, "right": 1, "up": 2, "down": 3}
+        code = mapping.get(str(direction).lower())
+        if code is None:
+            return json.dumps(
+                {"ok": False, "reason": "direction 只能是 up/down/left/right"},
+                ensure_ascii=False,
+            )
+        repeat = max(1, min(10, int(times or 1)))
+        try:
+            for _ in range(repeat):
+                await self._arun("shell", "uitest", "uiInput", "dircFling", str(code))
+                await asyncio.sleep(0.3)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        return json.dumps(
+            {"ok": True, "scrolled": direction, "times": repeat}, ensure_ascii=False
+        )
+
+    @llm_tool(name="hdc_drag")
+    async def hdc_drag_tool(
+        self,
+        event: AstrMessageEvent,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+    ) -> str:
+        """拖拽（拖动滑块、拖图标、调音量条）。和 swipe 的区别是拖拽更慢、会跟手。
+
+        Args:
+            x1(number): 起点横坐标。
+            y1(number): 起点纵坐标。
+            x2(number): 终点横坐标。
+            y2(number): 终点纵坐标。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        try:
+            await self._arun(
+                "shell", "uitest", "uiInput", "drag",
+                str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2)),
+            )
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        return json.dumps({"ok": True, "dragged": [int(x1), int(y1), int(x2), int(y2)]}, ensure_ascii=False)
+
+    # --- 文件 ---
+
+    def _pull_dir(self) -> str:
+        path = os.path.join(self.screenshot_dir, "files")
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    @llm_tool(name="hdc_file_pull")
+    async def hdc_file_pull_tool(self, event: AstrMessageEvent, remote_path: str) -> str:
+        """把手机上的文件拉回电脑，返回本地路径。
+
+        配合 hdc_ui_dump 找到的路径用；也可以拉相册里的原图。
+
+        Args:
+            remote_path(string): 手机上的完整路径，如 /storage/Media/DCIM/Camera/IMG_001.jpg。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        remote = str(remote_path or "").strip()
+        if not remote.startswith("/"):
+            return json.dumps({"ok": False, "reason": "要给绝对路径"}, ensure_ascii=False)
+        name = os.path.basename(remote) or f"pull_{int(time.time())}"
+        local = os.path.join(self._pull_dir(), name)
+        try:
+            await self._arun("file", "recv", remote, local, timeout=120)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        if not os.path.isfile(local):
+            return json.dumps({"ok": False, "reason": f"没拉到文件：{remote}"}, ensure_ascii=False)
+        return json.dumps(
+            {"ok": True, "local_path": local, "size": os.path.getsize(local)},
+            ensure_ascii=False,
+        )
+
+    @llm_tool(name="hdc_file_push")
+    async def hdc_file_push_tool(
+        self,
+        event: AstrMessageEvent,
+        local_path: str,
+        remote_path: str = "/data/local/tmp/",
+    ) -> str:
+        """把电脑上的文件推到手机。
+
+        Args:
+            local_path(string): 电脑上的文件路径。
+            remote_path(string): 手机上的目标路径，默认 /data/local/tmp/。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        local = str(local_path or "").strip()
+        if not os.path.isfile(local):
+            return json.dumps({"ok": False, "reason": f"本地没有这个文件：{local}"}, ensure_ascii=False)
+        dest = remote_path if remote_path.endswith("/") else remote_path
+        if remote_path.endswith("/"):
+            dest = remote_path + os.path.basename(local)
+        try:
+            await self._arun("file", "send", local, dest, timeout=120)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        return json.dumps({"ok": True, "remote_path": dest}, ensure_ascii=False)
+
+    @llm_tool(name="hdc_latest_photos")
+    async def hdc_latest_photos_tool(
+        self,
+        event: AstrMessageEvent,
+        count: int = 1,
+        album_dir: str = "/storage/Media/DCIM/Camera",
+    ) -> str:
+        """把手机相册里最新的照片拉回电脑（按修改时间倒序）。
+
+        Args:
+            count(number): 拉几张，默认 1，最多 5。
+            album_dir(string): 相册目录，默认 /storage/Media/DCIM/Camera。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        take = max(1, min(5, int(count or 1)))
+        try:
+            listing = await self._arun("shell", "ls", "-t", album_dir)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        names = [
+            line.strip()
+            for line in listing.splitlines()
+            if line.strip() and not line.strip().endswith("/")
+        ][:take]
+        if not names:
+            return json.dumps({"ok": False, "reason": f"{album_dir} 里没有文件"}, ensure_ascii=False)
+
+        saved = []
+        for name in names:
+            remote = f"{album_dir.rstrip('/')}/{name}"
+            local = os.path.join(self._pull_dir(), name)
+            try:
+                await self._arun("file", "recv", remote, local, timeout=120)
+            except HdcError:
+                continue
+            if os.path.isfile(local):
+                saved.append(local)
+        return json.dumps(
+            {"ok": bool(saved), "files": saved},
+            ensure_ascii=False,
+        )
+
+    # --- 设备状态 ---
+
+    @llm_tool(name="hdc_device_status")
+    async def hdc_device_status_tool(self, event: AstrMessageEvent) -> str:
+        """读手机当前状态：电量、充电、剩余存储、前台应用。
+
+        想知道「手机是不是快没电了」「现在在用哪个 App」时用。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        info: dict = {}
+        try:
+            battery = await self._arun("shell", "hidumper", "-s", "BatteryService", "-a", "-i")
+            match = re.search(r"capacity:\s*(\d+)", battery)
+            if match:
+                info["battery_percent"] = int(match.group(1))
+            info["charging"] = bool(re.search(r"chargingStatus:\s*[1-9]", battery))
+        except HdcError:
+            pass
+        try:
+            storage = await self._arun("shell", "df", "-h", "/data")
+            info["storage"] = storage.splitlines()[-1].strip() if storage.strip() else ""
+        except HdcError:
+            pass
+        try:
+            top = await self._arun(
+                "shell", "hidumper", "-s", "AbilityManagerService", "-a", "-e"
+            )
+            apps = re.findall(r"bundleName:\s*([\w.]+)", top)
+            if apps:
+                info["foreground_app"] = apps[0]
+        except HdcError:
+            pass
+        return json.dumps({"ok": True, "status": info}, ensure_ascii=False)
+
+    @llm_tool(name="hdc_app_list")
+    async def hdc_app_list_tool(self, event: AstrMessageEvent, keyword: str = "") -> str:
+        """列出手机上装了哪些应用，可按关键词过滤。
+
+        拿到 bundleName 后配合 hdc_app_start 使用。
+
+        Args:
+            keyword(string): 过滤词，比如「音乐」「淘宝」；留空列全部。
+        """
+        if not self._allowed(event):
+            return self._deny()
+        try:
+            raw = await self._arun("shell", "bm", "dump", "-a", timeout=60)
+        except HdcError as exc:
+            return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
+        bundles = [line.strip() for line in raw.splitlines() if line.strip()]
+        needle = str(keyword or "").strip().lower()
+        if needle:
+            bundles = [b for b in bundles if needle in b.lower()]
+        return json.dumps(
+            {"ok": True, "count": len(bundles), "bundles": bundles[:80]},
+            ensure_ascii=False,
+        )
+
+
     # 输入法候选栏的坐标（1320 宽的屏，键盘弹出时）。
     # 候选栏是输入法自己的窗口，dumpLayout 读不到，只能按坐标点。
     CANDIDATE_X0 = 96
