@@ -17,6 +17,7 @@ import asyncio
 import base64
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -209,6 +210,41 @@ class HdcPhone(Star):
         self._run("file", "recv", remote, incoming)
         return self._rotate_shot(self._downscale(incoming))
 
+    def _foreground_bundle(self) -> str:
+        """当前前台应用的 bundleName；读不到就返回空串。
+
+        `aa dump -l` 的第一个 mission 就是最近使用的那个，mission name 里带着
+        包名（形如 `[#com.xxx:entry:...]`）。拿它做防误触判断够了。
+        """
+        try:
+            raw = self._run("shell", "aa", "dump", "-l", timeout=15)
+        except HdcError:
+            return ""
+        for line in raw.splitlines():
+            if "Mission ID" not in line:
+                continue
+            match = re.search(r"mission name #\[#([^:\]]+)", line)
+            if match:
+                return match.group(1).strip()
+        return ""
+
+    def _tapped_guard(self) -> str:
+        """点按类操作的防护：前台是受保护应用时返回原因，否则返回空串。
+
+        刷短视频最怕的不是滑动，而是手滑点到点赞/关注，把主人的推荐和关注列表
+        搅乱。这些应用里只允许滑动和截图，点按一律先拦下来。
+        """
+        bundles = getattr(self.cfg, "tap_guard_bundles", None)
+        if not bundles:
+            return ""
+        current = self._foreground_bundle()
+        if current and any(str(b) in current for b in bundles):
+            return (
+                f"前台是 {current}，这个应用里禁止点按（防止误点赞/误关注）。"
+                "刷内容请用 hdc_swipe_loop 或 hdc_scroll。"
+            )
+        return ""
+
     def _layout(self) -> list[dict]:
         """把当前界面读成 [{type, text, bounds, x, y}] 的扁平列表。
 
@@ -342,6 +378,9 @@ class HdcPhone(Star):
         """
         if not self._allowed(event):
             return self._deny()
+        blocked = self._tapped_guard()
+        if blocked:
+            return json.dumps({"ok": False, "reason": blocked}, ensure_ascii=False)
         try:
             await self._arun("shell", "uitest", "uiInput", "click", str(int(x)), str(int(y)))
         except HdcError as exc:
@@ -390,6 +429,9 @@ class HdcPhone(Star):
         """
         if not self._allowed(event):
             return self._deny()
+        blocked = self._tapped_guard()
+        if blocked:
+            return json.dumps({"ok": False, "reason": blocked}, ensure_ascii=False)
         try:
             await self._arun("shell", "uitest", "uiInput", "longClick", str(int(x)), str(int(y)))
         except HdcError as exc:
@@ -406,6 +448,9 @@ class HdcPhone(Star):
         """
         if not self._allowed(event):
             return self._deny()
+        blocked = self._tapped_guard()
+        if blocked:
+            return json.dumps({"ok": False, "reason": blocked}, ensure_ascii=False)
         try:
             await self._arun("shell", "uitest", "uiInput", "doubleClick", str(int(x)), str(int(y)))
         except HdcError as exc:
@@ -427,15 +472,17 @@ class HdcPhone(Star):
         中间用 hdc_see 看一眼画面，再决定要不要继续。
 
         Args:
-            times(number): 刷几下，默认 10，最多 50。
+            times(number): 刷几下，默认 10，最多 20。
             direction(string): up（看下一个）/ down（回上一个），默认 up。
-            delay_ms(number): 每下之间间隔毫秒，默认 1500，最多 5000。
+            delay_ms(number): 每下之间的基准间隔毫秒，默认 8000，最多 20000。
+                实际间隔会在 60%~140% 之间随机浮动，模拟真人看一会儿再划。
             screenshot_at_end(boolean): 刷完是否截一张图返回，默认 true。
         """
         if not self._allowed(event):
             return self._deny()
-        count = max(1, min(50, int(times or 10)))
-        gap = max(300, min(5000, int(delay_ms or 1500))) / 1000.0
+        # 单次上限压到 20：刷得越多，账号在算法里越像异常行为。
+        count = max(1, min(20, int(times or 10)))
+        base = max(1000, min(20000, int(delay_ms or 8000))) / 1000.0
         # dircFling 的方向码：0 左 1 右 2 下 3 上（按手指滑动方向）。
         # uitest help 里把 2 写成 "up"、3 写成 "down"，实测是反的：2 会触发
         # 抖音的下拉刷新，3 才翻到下一条。以实测为准。
@@ -444,7 +491,8 @@ class HdcPhone(Star):
             for index in range(count):
                 await self._arun("shell", "uitest", "uiInput", "dircFling", str(code))
                 if index < count - 1:
-                    await asyncio.sleep(gap)
+                    # 固定间隔看起来就是脚本；随机停留更接近真人浏览。
+                    await asyncio.sleep(base * random.uniform(0.6, 1.4))
         except HdcError as exc:
             return json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False)
 
@@ -512,6 +560,9 @@ class HdcPhone(Star):
         """
         if not self._allowed(event):
             return self._deny()
+        blocked = self._tapped_guard()
+        if blocked:
+            return json.dumps({"ok": False, "reason": blocked}, ensure_ascii=False)
         try:
             await self._arun(
                 "shell", "uitest", "uiInput", "drag",
