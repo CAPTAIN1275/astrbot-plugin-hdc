@@ -72,6 +72,62 @@ PAYMENT_BUNDLES = (
     "com.chinamworld",
 )
 
+# 中文应用名 -> 包名片段。鸿蒙的包名都是英文的，模型拿中文名去搜包名永远搜不到，
+# 所以先在这里翻一道。匹配方式：关键词里包含中文名（或反过来）就算命中。
+APP_ALIASES: dict[str, tuple[str, ...]] = {
+    "拼多多": ("pinduoduo", "xunmeng"),
+    "淘宝": ("taobao4hmos", "taobao"),
+    "天猫": ("tmall",),
+    "闲鱼": ("idlefish",),
+    "京东": ("jd.hm.mall", "jingdong"),
+    "支付宝": ("alipay",),
+    "微信": ("com.tencent.mm", "wechat"),
+    "QQ": ("com.tencent.qq", "qq2"),
+    "抖音": ("aweme", "douyin"),
+    "快手": ("kuaishou", "kwai"),
+    "哔哩哔哩": ("bilibili", "bstar"),
+    "B站": ("bilibili", "bstar"),
+    "小红书": ("xhs", "xiaohongshu"),
+    "微博": ("weibo",),
+    "美团": ("meituan",),
+    "饿了么": ("eleme",),
+    "高德": ("amap", "autonavi"),
+    "百度地图": ("baidumap",),
+    "网易云音乐": ("netease", "cloudmusic"),
+    "QQ音乐": ("qqmusic",),
+    "汽水音乐": ("qishui", "soda"),
+    "酷狗": ("kugou",),
+    "设置": ("settings",),
+    "图库": ("photos", "gallery"),
+    "相机": ("camera",),
+    "相册": ("photos", "gallery"),
+    "日历": ("calendar",),
+    "闹钟": ("clock", "alarm"),
+    "计算器": ("calculator",),
+    "浏览器": ("browser",),
+    "邮箱": ("mail",),
+    "Weather": ("weather",),
+    "天气": ("weather",),
+    "文件": ("filemanager", "files"),
+    "健康": ("health",),
+    "运动": ("fitness", "sport"),
+}
+
+# 类别词：模型常问「装了哪些购物 App」这类问题，按类别展开成多个包名片段。
+APP_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "购物": ("taobao", "tmall", "jd.hm.mall", "pinduoduo", "idlefish", "suning", "vip"),
+    "电商": ("taobao", "tmall", "jd.hm.mall", "pinduoduo", "idlefish"),
+    "视频": ("aweme", "bilibili", "youku", "iqiyi", "tencent.qqlive", "kuaishou"),
+    "短视频": ("aweme", "kuaishou", "xhs"),
+    "音乐": ("netease", "qqmusic", "kugou", "qishui"),
+    "社交": ("com.tencent.mm", "com.tencent.qq", "weibo", "xhs"),
+    "地图": ("amap", "baidumap", "autonavi"),
+    "游戏": ("game", "mihoyo", "hypergryph"),
+    "办公": ("wps", "office", "documents"),
+    "浏览器": ("browser", "chrome", "edge"),
+}
+
+
 
 class HdcError(RuntimeError):
     """hdc 调用失败。"""
@@ -738,10 +794,11 @@ class HdcPhone(Star):
     async def hdc_app_list_tool(self, event: AstrMessageEvent, keyword: str = "") -> str:
         """列出手机上装了哪些应用，可按关键词过滤。
 
-        拿到 bundleName 后配合 hdc_app_start 使用。
+        包名是英文的（比如拼多多是 com.xunmeng.pinduoduo.hos），直接搜中文会搜不到，
+        所以这里内置了一张常用中文名到包名片段的映射表；匹配不上再按原文搜包名。
 
         Args:
-            keyword(string): 过滤词，比如「音乐」「淘宝」；留空列全部。
+            keyword(string): 应用名或包名片段，比如「拼多多」「淘宝」「bilibili」；留空列全部。
         """
         if not self._allowed(event):
             return self._deny()
@@ -752,9 +809,27 @@ class HdcPhone(Star):
         bundles = [line.strip() for line in raw.splitlines() if line.strip()]
         needle = str(keyword or "").strip().lower()
         if needle:
-            bundles = [b for b in bundles if needle in b.lower()]
+            # 中文名先翻成包名片段；一个中文名可能对应多个片段
+            fragments = [needle]
+            for name, alias in APP_ALIASES.items():
+                if name.lower() in needle or needle in name.lower():
+                    fragments.extend(alias)
+            # 类别词（购物/视频…）展开成多个应用的片段
+            for name, alias in APP_CATEGORIES.items():
+                if name in needle or needle in name:
+                    fragments.extend(alias)
+            bundles = [
+                b
+                for b in bundles
+                if any(fragment in b.lower() for fragment in fragments if fragment)
+            ]
         return json.dumps(
-            {"ok": True, "count": len(bundles), "bundles": bundles[:80]},
+            {
+                "ok": True,
+                "count": len(bundles),
+                "bundles": bundles[:80],
+                "hint": "包名是英文的；猜不到就先不传 keyword 拉全量，再按包名找",
+            },
             ensure_ascii=False,
         )
 
